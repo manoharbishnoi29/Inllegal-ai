@@ -1,0 +1,14 @@
+{
+  "name": "AutoReply System",
+  "short_name": "AutoReply",
+  "description": "Ask a question and get instant answers, app links and downloads.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b5d55",
+  "theme_color": "#0b5d55",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
