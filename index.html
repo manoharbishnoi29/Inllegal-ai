@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>AutoReply System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Ask a question and get an instant answer, app links and downloads.">
+  <meta name="theme-color" content="#0b5d55">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    (function () {
+      var t = localStorage.getItem('ar-theme') ||
+        (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+</head>
+<body class="chat-page">
+  <div id="setupBanner" class="setup-banner hidden">
+    Setup pending: js/config.js mein Supabase URL aur anon key daalo.
+  </div>
+
+  <header class="chat-header">
+    <div class="brand">
+      <div class="logo" id="logo"></div>
+      <div>
+        <h1>AutoReply</h1>
+        <div class="status">Online &middot; instant answers</div>
+      </div>
+    </div>
+    <button class="icon-btn hidden" id="installBtn" aria-label="Install app" title="Install app"></button>
+    <button class="icon-btn" id="searchBtn" aria-label="Search answers" title="Search answers"></button>
+    <button class="icon-btn" id="newBtn" aria-label="New chat" title="New chat"></button>
+    <button class="icon-btn" id="themeBtn"></button>
+  </header>
+
+  <section class="search-panel hidden" id="searchPanel" aria-label="Search saved answers">
+    <input class="input" id="searchInput" type="search" placeholder="Search by keyword (Hindi / English / Hinglish)" autocomplete="off">
+    <div id="searchResults"></div>
+  </section>
+
+  <main class="messages" id="messages" aria-live="polite"></main>
+
+  <div class="dock">
+    <div class="chips" id="chips" aria-label="Suggested questions"></div>
+    <form class="composer" id="composer" autocomplete="off">
+      <textarea id="input" rows="1" maxlength="500" placeholder="Apna sawaal likho... / Type your question" aria-label="Your question"></textarea>
+      <button class="send" id="sendBtn" type="submit" aria-label="Send"></button>
+    </form>
+  </div>
+
+  <script type="module" src="js/chat.js"></script>
+</body>
+</html>
