@@ -1,6 +1,6 @@
 {
-  "name": "AutoReply System",
-  "short_name": "AutoReply",
+  "name": "Inliegal AI",
+  "short_name": "Inliegal AI",
   "description": "Ask a question and get instant answers, app links and downloads.",
   "start_url": "./index.html",
   "scope": "./",
