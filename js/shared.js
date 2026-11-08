@@ -1,19 +1,3 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-
-export const configured =
-  /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 40;
-
-/** persist=false -> User Panel (anonymous, never stores a login)
- *  persist=true  -> Admin Panel (keeps admin session, own storage key) */
-export function makeClient(persist) {
-  if (!configured) return null;
-  const auth = persist
-    ? { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'autoreply-admin-auth' }
-    : { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false };
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth });
-}
-
 /* ---------- small utils ---------- */
 export const esc = (s = '') =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
