@@ -1,5 +1,10 @@
-// Supabase -> Project Settings -> API
-// Yahan sirf "Project URL" aur "anon public" key daalni hai.
-// NEVER put the service_role key here.
-export const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-export const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_PUBLIC_KEY';
+// Firebase Console -> Project settings -> General -> Your apps -> Web app -> firebaseConfig
+// Yahan apni firebaseConfig ki values paste karo.
+export const firebaseConfig = {
+  apiKey: 'YOUR_API_KEY',
+  authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
+  projectId: 'YOUR_PROJECT_ID',
+  storageBucket: 'YOUR_PROJECT_ID.firebasestorage.app',
+  messagingSenderId: 'YOUR_SENDER_ID',
+  appId: 'YOUR_APP_ID',
+};
