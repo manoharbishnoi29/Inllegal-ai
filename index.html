@@ -18,6 +18,31 @@
     .logo svg { display: none; }
     .avatar { background: #000 url(icons/logo-128.png) center / cover no-repeat !important; }
     .avatar svg { display: none; }
+
+    /* login / signup screens */
+    .auth { position: fixed; inset: 0; z-index: 60; background: var(--bg); overflow: auto; display: grid; place-items: center; padding: 20px; }
+    .a-card { width: min(100%, 400px); background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 26px; box-shadow: var(--shadow); }
+    .a-logo { width: 64px; height: 64px; border-radius: 16px; background: #000 url(icons/logo-128.png) center / cover no-repeat; margin-bottom: 14px; }
+    .a-card h2 { font-size: 1.6rem; margin-bottom: 4px; }
+    .a-sub { color: var(--muted); margin: 0 0 18px; }
+    .a-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 12px; margin-bottom: 16px; }
+    .a-tab { border: 0; background: transparent; padding: 9px; border-radius: 9px; font-weight: 600; cursor: pointer; color: var(--muted); }
+    .a-tab.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+    .a-msg { background: var(--danger-soft); color: var(--danger); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-weight: 500; font-size: .92rem; }
+    .a-msg.ok { background: var(--ok-soft); color: var(--ok); }
+    .a-field { display: grid; gap: 6px; margin-bottom: 14px; }
+    .a-field label { font-weight: 600; font-size: .9rem; }
+    .a-pw { position: relative; }
+    .a-pw .input { padding-right: 64px; }
+    .a-pw button { position: absolute; right: 6px; top: 6px; border: 0; background: transparent; color: var(--primary); font-weight: 600; padding: 6px 8px; cursor: pointer; }
+    .a-btn { width: 100%; min-height: 46px; border-radius: 12px; border: 1px solid transparent; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+    .a-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .a-primary { background: var(--primary); color: var(--on-primary); }
+    .a-ghost { background: transparent; border-color: var(--border); color: var(--text); margin-top: 10px; }
+    .a-or { text-align: center; color: var(--muted); font-size: .85rem; margin: 14px 0 4px; }
+    .a-link { background: none; border: 0; color: var(--primary); font-weight: 600; cursor: pointer; margin: 14px auto 0; display: block; }
+    .a-g { width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 800; display: grid; place-items: center; font-size: .85rem; }
+    .a-mail { font-weight: 700; overflow-wrap: anywhere; }
   </style>
   <script>
     (function () {
@@ -42,7 +67,7 @@
     </div>
     <button class="icon-btn hidden" id="installBtn" aria-label="Install app" title="Install app"></button>
     <button class="icon-btn" id="searchBtn" aria-label="Search answers" title="Search answers"></button>
-    <button class="icon-btn" id="newBtn" aria-label="New chat" title="New chat"></button>
+    <button class="icon-btn" id="logoutBtn" aria-label="Logout" title="Logout"></button>
     <button class="icon-btn" id="themeBtn"></button>
   </header>
 
@@ -59,6 +84,52 @@
       <textarea id="input" rows="1" maxlength="500" placeholder="Apna sawaal likho... / Type your question" aria-label="Your question"></textarea>
       <button class="send" id="sendBtn" type="submit" aria-label="Send"></button>
     </form>
+  </div>
+
+  <!-- LOGIN / SIGN UP -->
+  <div class="auth" id="authScreen">
+    <div class="a-card">
+      <div class="a-logo"></div>
+      <h2>Illegal AI</h2>
+      <p class="a-sub" id="aSub">Login karke apna sawaal poocho.</p>
+      <div class="a-tabs">
+        <button type="button" class="a-tab on" data-mode="login">Login</button>
+        <button type="button" class="a-tab" data-mode="signup">Sign up</button>
+      </div>
+      <div class="a-msg hidden" id="aMsg" role="alert"></div>
+      <form id="authForm" novalidate>
+        <div class="a-field">
+          <label for="aEmail">Email</label>
+          <input class="input" id="aEmail" type="email" autocomplete="username" placeholder="aap@gmail.com">
+        </div>
+        <div class="a-field">
+          <label for="aPass">Password</label>
+          <div class="a-pw">
+            <input class="input" id="aPass" type="password" autocomplete="current-password" placeholder="Kam se kam 6 akshar">
+            <button type="button" id="aPwToggle">Show</button>
+          </div>
+        </div>
+        <button class="a-btn a-primary" id="aSubmit" type="submit">Login</button>
+      </form>
+      <div class="a-or">ya</div>
+      <button class="a-btn a-ghost" id="googleBtn" type="button"><span class="a-g">G</span> Google se continue karo</button>
+      <button class="a-link" id="forgotBtn" type="button">Password bhool gaye?</button>
+    </div>
+  </div>
+
+  <!-- EMAIL VERIFY -->
+  <div class="auth hidden" id="verifyScreen">
+    <div class="a-card">
+      <div class="a-logo"></div>
+      <h2>Email verify karo</h2>
+      <p class="a-sub">Humne is email par ek verification link bheja hai:</p>
+      <p class="a-mail" id="vEmail"></p>
+      <div class="a-msg hidden" id="vMsg" role="alert"></div>
+      <p class="hint" style="margin:0 0 16px">Email kholo, link par tap karo, phir yahan wapas aao. Email na mile to spam folder bhi dekho.</p>
+      <button class="a-btn a-primary" id="vCheck" type="button">Maine verify kar liya</button>
+      <button class="a-btn a-ghost" id="vResend" type="button">Email dobara bhejo</button>
+      <button class="a-link" id="vLogout" type="button">Dusre email se login karo</button>
+    </div>
   </div>
 
   <script type="module" src="js/chat.js"></script>
