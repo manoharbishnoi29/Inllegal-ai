@@ -1,5 +1,9 @@
 import { esc, formatText, safeUrl, toast, icon, initTheme, debounce, registerSW, uuid } from './shared.js';
-import { configured, db, fs } from './firebase.js';
+import { configured, app, db, fs } from './firebase.js';
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  sendEmailVerification, sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
 const FALLBACK = "Sorry! We don't have an answer yet. Your question has been forwarded to the admin.";
 const WELCOME = 'Namaste! 👋 Apna sawaal Hindi, English ya Hinglish mein likho. Jo answer saved hoga, turant mil jayega — links aur downloads ke saath.';
@@ -18,11 +22,7 @@ const panel = $('#searchPanel');
 const sInput = $('#searchInput');
 const sResults = $('#searchResults');
 
-let session = localStorage.getItem('ar-session');
-if (!session) {
-  session = uuid();
-  localStorage.setItem('ar-session', session);
-}
+let session = null;
 const seen = new Set();
 const mine = new Set();
 let lastDay = '';
@@ -30,12 +30,14 @@ let busy = false;
 let typingEl = null;
 let qa = [];
 let unsub = null;
+let unsubQA = null;
+let currentUid = null;
 let results = [];
 
 /* ---------- static UI ---------- */
 $('#logo').innerHTML = icon('chat', 22);
 $('#searchBtn').innerHTML = icon('search');
-$('#newBtn').innerHTML = icon('plus');
+$('#logoutBtn').innerHTML = icon('logout');
 $('#installBtn').innerHTML = icon('download');
 sendBtn.innerHTML = icon('send');
 initTheme($('#themeBtn'));
@@ -44,6 +46,7 @@ registerSW();
 if (!configured) {
   $('#setupBanner').textContent = 'Setup pending: js/config.js mein Firebase config daalo.';
   $('#setupBanner').classList.remove('hidden');
+  $('#authScreen').classList.add('hidden');
   inputEl.disabled = true;
   sendBtn.disabled = true;
 }
@@ -156,7 +159,8 @@ function findAnswers(text, max = 1) {
 
 /* ---------- live data ---------- */
 function listenQA() {
-  fs.onSnapshot(
+  unsubQA?.();
+  unsubQA = fs.onSnapshot(
     fs.query(fs.collection(db, 'qa'), fs.where('isActive', '==', true)),
     (snap) => {
       qa = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -199,7 +203,7 @@ const saveMsg = (m) =>
 
 async function ask(text, direct = null) {
   text = (text || '').trim().slice(0, 500);
-  if (!text || busy || !configured) return;
+  if (!text || busy || !configured || !session) return;
   busy = true;
   sendBtn.disabled = true;
 
@@ -296,16 +300,6 @@ chipsEl.addEventListener('click', (e) => {
   if (c) ask(c.title);
 });
 
-$('#newBtn').addEventListener('click', () => {
-  if (!confirm('Nayi chat shuru karein? Purani chat is device par nahi dikhegi.')) return;
-  session = uuid();
-  localStorage.setItem('ar-session', session);
-  listEl.innerHTML = '';
-  seen.clear();
-  lastDay = '';
-  listenChat();
-});
-
 /* ---------- PWA install ---------- */
 let deferred = null;
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -321,8 +315,211 @@ $('#installBtn').addEventListener('click', async () => {
   $('#installBtn').classList.add('hidden');
 });
 
-/* ---------- go ---------- */
-if (configured) {
+/* =====================================================================
+   LOGIN / SIGN UP  (email + verification, ya Google)
+   ===================================================================== */
+const auth = configured ? getAuth(app) : null;
+const authScreen = $('#authScreen');
+const verifyScreen = $('#verifyScreen');
+let mode = 'login';
+let justSent = false;
+let pollTimer = null;
+let authRun = 0;
+
+const ERR = {
+  'auth/invalid-email': 'Email sahi nahi hai.',
+  'auth/missing-password': 'Password likho.',
+  'auth/weak-password': 'Password kam se kam 6 akshar ka rakho.',
+  'auth/email-already-in-use': 'Ye email pehle se registered hai. Login karo.',
+  'auth/invalid-credential': 'Email ya password galat hai.',
+  'auth/user-not-found': 'Is email ka account nahi mila. Sign up karo.',
+  'auth/wrong-password': 'Email ya password galat hai.',
+  'auth/too-many-requests': 'Bahut zyada koshish ho gayi. Thodi der baad try karo.',
+  'auth/network-request-failed': 'Internet check karo.',
+  'auth/popup-closed-by-user': 'Google login beech mein band ho gaya.',
+  'auth/cancelled-popup-request': 'Google login beech mein band ho gaya.',
+  'auth/popup-blocked': 'Popup block hai. Allow karke dobara try karo.',
+  'auth/unauthorized-domain': 'Firebase mein is site ka domain authorized nahi hai.',
+  'auth/operation-not-allowed': 'Ye login method Firebase mein on nahi hai.',
+};
+const authErr = (e) => ERR[e?.code] || e?.message || 'Kuch galat ho gaya.';
+
+function say(el, text, ok = false) {
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+  el.classList.toggle('ok', !!ok);
+}
+function busyBtn(btn, on, label) {
+  btn.disabled = on;
+  btn.textContent = on ? 'Ruko…' : label;
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.a-tab').forEach((t) => t.classList.toggle('on', t.dataset.mode === m));
+  $('#aSubmit').textContent = m === 'login' ? 'Login' : 'Account banao';
+  $('#aSub').textContent = m === 'login' ? 'Login karke apna sawaal poocho.' : 'Naya account banao. Email verify karna padega.';
+  $('#aPass').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  $('#forgotBtn').classList.toggle('hidden', m !== 'login');
+  say($('#aMsg'), '');
+}
+document.querySelectorAll('.a-tab').forEach((t) => t.addEventListener('click', () => setMode(t.dataset.mode)));
+
+$('#aPwToggle').addEventListener('click', () => {
+  const p = $('#aPass');
+  const show = p.type === 'password';
+  p.type = show ? 'text' : 'password';
+  $('#aPwToggle').textContent = show ? 'Hide' : 'Show';
+});
+
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('#aEmail').value.trim();
+  const pass = $('#aPass').value;
+  if (!email || !pass) return say($('#aMsg'), 'Email aur password dono likho.');
+  const btn = $('#aSubmit');
+  const label = mode === 'login' ? 'Login' : 'Account banao';
+  busyBtn(btn, true, label);
+  say($('#aMsg'), '');
+  try {
+    if (mode === 'signup') {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      justSent = true;
+      await sendEmailVerification(cred.user);
+    } else {
+      await signInWithEmailAndPassword(auth, email, pass);
+    }
+    $('#aPass').value = '';
+  } catch (err) {
+    justSent = false;
+    say($('#aMsg'), authErr(err));
+  }
+  busyBtn(btn, false, label);
+});
+
+$('#googleBtn').addEventListener('click', async () => {
+  say($('#aMsg'), '');
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    say($('#aMsg'), authErr(err));
+  }
+});
+
+$('#forgotBtn').addEventListener('click', async () => {
+  const email = $('#aEmail').value.trim();
+  if (!email) return say($('#aMsg'), 'Pehle upar apna email likho, phir yahan dabao.');
+  try {
+    await sendPasswordResetEmail(auth, email);
+    say($('#aMsg'), 'Password reset link bhej diya. Inbox ya spam folder check karo.', true);
+  } catch (err) {
+    say($('#aMsg'), authErr(err));
+  }
+});
+
+/* ---------- verify screen ---------- */
+async function checkVerified(user, manual = false) {
+  try {
+    await user.reload();
+  } catch (e) {
+    if (manual) say($('#vMsg'), authErr(e));
+    return false;
+  }
+  if (user.emailVerified) return true;
+  if (manual) say($('#vMsg'), 'Abhi verify nahi hua. Email mein diye link par tap karo, phir yahan dobara dabao.');
+  return false;
+}
+
+function showVerify(user) {
+  show('verify');
+  $('#vEmail').textContent = user.email || '';
+  say($('#vMsg'), justSent ? 'Verification email bhej diya gaya hai.' : 'Is email ko pehle verify karna hoga.', justSent);
+  justSent = false;
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (auth.currentUser && (await checkVerified(auth.currentUser))) handleUser(auth.currentUser);
+  }, 4000);
+}
+
+$('#vCheck').addEventListener('click', async () => {
+  const u = auth.currentUser;
+  if (!u) return;
+  if (await checkVerified(u, true)) handleUser(u);
+});
+
+let cool = 0;
+$('#vResend').addEventListener('click', async () => {
+  const u = auth.currentUser;
+  if (!u || cool > 0) return;
+  try {
+    await sendEmailVerification(u);
+    say($('#vMsg'), 'Email dobara bhej diya. Spam folder bhi dekho.', true);
+    cool = 60;
+    const t = setInterval(() => {
+      cool--;
+      $('#vResend').textContent = cool > 0 ? `Dobara bhejo (${cool}s)` : 'Email dobara bhejo';
+      if (cool <= 0) clearInterval(t);
+    }, 1000);
+  } catch (err) {
+    say($('#vMsg'), authErr(err));
+  }
+});
+$('#vLogout').addEventListener('click', () => signOut(auth));
+$('#logoutBtn').addEventListener('click', () => {
+  if (confirm('Logout karein?')) signOut(auth);
+});
+
+/* ---------- screens ---------- */
+function show(which) {
+  authScreen.classList.toggle('hidden', which !== 'auth');
+  verifyScreen.classList.toggle('hidden', which !== 'verify');
+}
+
+function stopApp() {
+  unsub?.();
+  unsubQA?.();
+  unsub = unsubQA = null;
+  currentUid = null;
+  session = null;
+  listEl.innerHTML = '';
+  chipsEl.innerHTML = '';
+  seen.clear();
+  lastDay = '';
+}
+
+async function startApp(user) {
+  if (currentUid === user.uid) return;
+  stopApp();
+  currentUid = user.uid;
+  session = user.uid; // chat history is user ke UID ke naam se save hoti hai
+  await user.getIdToken(true); // naya "email verified" token lo, warna Firestore block karega
   listenQA();
   listenChat();
+}
+
+async function handleUser(user) {
+  const run = ++authRun;
+  if (!user) {
+    clearInterval(pollTimer);
+    stopApp();
+    show('auth');
+    return;
+  }
+  if (!(await checkVerified(user))) {
+    if (run === authRun) {
+      stopApp();
+      showVerify(user);
+    }
+    return;
+  }
+  if (run !== authRun) return;
+  clearInterval(pollTimer);
+  show('app');
+  await startApp(user);
+}
+
+/* ---------- go ---------- */
+if (configured) {
+  setMode('login');
+  onAuthStateChanged(auth, handleUser);
 }
