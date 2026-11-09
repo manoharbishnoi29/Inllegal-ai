@@ -1,6 +1,6 @@
 {
-  "name": "Inliegal AI",
-  "short_name": "Inliegal AI",
+  "name": "Illegal AI",
+  "short_name": "Illegal AI",
   "description": "Ask a question and get instant answers, app links and downloads.",
   "start_url": "./index.html",
   "scope": "./",
