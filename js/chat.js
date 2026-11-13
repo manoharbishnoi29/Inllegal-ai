@@ -458,4 +458,426 @@ function updatePremiumUI() {
 function listenPremiumData(uid) {
   unsubSub?.();
   unsubSet?.();
-  unsubPay?.(
+  unsubPay?.();
+  unsubSub = fs.onSnapshot(fs.doc(db, 'subscriptions', uid), (snap) => {
+    const was = isPremium();
+    sub = snap.exists() ? snap.data() : null;
+    updatePremiumUI();
+    renderSheetParts();
+    if (!was && isPremium()) toast(t('premActivated'), 'success');
+  }, (e) => console.warn('sub listen failed', e));
+  unsubSet = fs.onSnapshot(fs.doc(db, 'settings', 'premium'), (snap) => {
+    settings = snap.exists() ? snap.data() : null;
+    renderSheetParts();
+  }, (e) => console.warn('settings listen failed', e));
+  unsubPay = fs.onSnapshot(fs.query(fs.collection(db, 'payments'), fs.where('uid', '==', uid)), (snap) => {
+    payments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderSheetParts();
+  }, (e) => console.warn('payments listen failed', e));
+}
+
+const planPrice = (k) => Number(settings?.[k + 'Price']) || 0;
+const premiumReady = () => !!(settings && settings.enabled !== false && settings.upiId && (planPrice('monthly') || planPrice('yearly')));
+
+function openPremium() {
+  closeDrawer();
+  sheet.innerHTML = `
+    <div class="sh-head"><h2>👑 <span data-i18n="premium"></span></h2><button class="icon-btn" type="button" data-close aria-label="Close">${icon('x')}</button></div>
+    <div id="shStatus"></div>
+    <div id="shPlans"></div>
+    <div id="shPay"></div>
+    <form id="shForm" class="hidden" novalidate>
+      <h3 data-i18n="step2"></h3>
+      <div class="a-field"><label for="shUtr" data-i18n="utrLabel"></label>
+        <input class="input" id="shUtr" inputmode="text" autocomplete="off" data-i18n-ph="utrPh"></div>
+      <div class="a-field"><label for="shName" data-i18n="nameLabel"></label>
+        <input class="input" id="shName" autocomplete="name" maxlength="60" data-i18n-ph="namePh"></div>
+      <div class="a-field"><label for="shMobile" data-i18n="mobileLabel"></label>
+        <input class="input" id="shMobile" inputmode="tel" maxlength="15" data-i18n-ph="mobilePh"></div>
+      <div class="a-msg hidden" id="shMsg" role="alert"></div>
+      <button class="a-btn a-primary" id="shSubmit" type="submit" data-i18n="submitPay"></button>
+      <p class="a-note" data-i18n="startsAfter"></p>
+    </form>
+    <h3 data-i18n="myRequests"></h3>
+    <div id="shList"></div>`;
+  applyStatic(sheet);
+  sheetBd.classList.remove('hidden');
+  if (!planPrice(selPlan)) selPlan = planPrice('monthly') ? 'monthly' : 'yearly';
+  renderSheetParts();
+}
+function closePremium() {
+  sheetBd.classList.add('hidden');
+}
+sheetBd.addEventListener('mousedown', (e) => {
+  if (e.target === sheetBd) closePremium();
+});
+$('#premiumBtn').addEventListener('click', openPremium);
+$('#drawerPremium').addEventListener('click', openPremium);
+
+function renderSheetParts() {
+  if (sheetBd.classList.contains('hidden') || !$('#shStatus')) return;
+  const ok = premiumReady();
+  $('#shStatus').innerHTML = isPremium()
+    ? `<div class="sh-ok">${esc(t('premActive', { plan: sub.plan === 'yearly' ? t('yearly') : t('monthly'), date: fmtDate(sub.expiresAt) }))}</div>`
+    : `<p class="hint" style="margin:0 0 10px">${esc(t('premIntro'))}</p>`;
+  if (!ok) {
+    $('#shPlans').innerHTML = `<p class="hint">${esc(t('premUnavailable'))}</p>`;
+    $('#shPay').innerHTML = '';
+    $('#shForm').classList.add('hidden');
+  } else {
+    const items = [['monthly', t('monthly'), t('days30')], ['yearly', t('yearly'), t('days365')]].filter(([k]) => planPrice(k));
+    if (!planPrice(selPlan)) selPlan = items[0][0];
+    $('#shPlans').innerHTML = `<div class="plans">${items
+      .map(([k, n, d]) => `<button type="button" class="plan ${selPlan === k ? 'on' : ''}" data-plan="${k}"><b>${esc(n)}</b><span>₹${planPrice(k)}</span><small>${esc(d)}</small></button>`)
+      .join('')}</div>`;
+    const price = planPrice(selPlan);
+    const link = `upi://pay?pa=${settings.upiId}&pn=${encodeURIComponent(settings.payeeName || 'Illegal AI')}&am=${price}&cu=INR&tn=${encodeURIComponent('Illegal AI ' + selPlan)}`;
+    $('#shPay').innerHTML = `
+      <h3>${esc(t('step1', { price }))}</h3>
+      <a class="a-btn a-primary" href="${esc(link)}">${esc(t('openUpi', { price }))}</a>
+      <div class="copyrow"><span>${esc(t('upiId'))}: <b>${esc(settings.upiId)}</b></span><button type="button" data-copy="${esc(settings.upiId)}">${esc(t('copy'))}</button></div>
+      ${settings.note ? `<p class="hint">${esc(settings.note)}</p>` : ''}
+      <p class="hint">${esc(t('payExact', { price }))}</p>`;
+    $('#shForm').classList.remove('hidden');
+  }
+  const sorted = [...payments].sort((a, b) => b.createdAt - a.createdAt);
+  $('#shList').innerHTML = sorted.length
+    ? sorted
+        .map((p) => `<div class="pr"><div><b>₹${p.amount}</b> ${esc(p.plan === 'yearly' ? t('yearly') : t('monthly'))} <small class="hint">${fmtDate(p.createdAt)}</small></div>
+          <span class="chip-s ${esc(p.status)}">${esc(t(p.status))}</span>
+          ${p.status === 'rejected' && p.reason ? `<small class="hint" style="width:100%">${esc(t('reasonLbl', { text: p.reason }))}</small>` : ''}</div>`)
+        .join('')
+    : `<p class="hint">${esc(t('noRequests'))}</p>`;
+}
+
+sheet.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-close]')) return closePremium();
+  const p = e.target.closest('[data-plan]');
+  if (p) {
+    selPlan = p.dataset.plan;
+    return renderSheetParts();
+  }
+  const c = e.target.closest('[data-copy]');
+  if (c) {
+    try {
+      await navigator.clipboard.writeText(c.dataset.copy);
+      toast(t('copied'));
+    } catch {
+      toast(t('copyFail'), 'error');
+    }
+  }
+});
+
+sheet.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'shForm') return;
+  e.preventDefault();
+  const msg = $('#shMsg');
+  const utr = $('#shUtr').value.trim().toUpperCase();
+  const name = $('#shName').value.trim();
+  const mobile = $('#shMobile').value.trim();
+  const fail = (k) => say(msg, t(k));
+  if (!/^[A-Z0-9]{10,25}$/.test(utr)) return fail('errUtr');
+  if (name.length < 2) return fail('errName');
+  if (mobile && !/^[0-9+ ]{8,15}$/.test(mobile)) return fail('errMobile');
+  const price = planPrice(selPlan);
+  if (!price) return fail('errPlan');
+  const btn = $('#shSubmit');
+  busyBtn(btn, true, t('submitPay'));
+  say(msg, '');
+  try {
+    await fs.setDoc(fs.doc(db, 'payments', utr), {
+      uid: session, email: auth.currentUser?.email || '', name, mobile, plan: selPlan, amount: price, status: 'pending', createdAt: Date.now(),
+    });
+    fs.setDoc(fs.doc(db, 'users', session), { name, ...(mobile ? { mobile } : {}) }, { merge: true }).catch(() => {});
+    $('#shUtr').value = '';
+    toast(t('paySubmitted'), 'success');
+  } catch (err) {
+    console.warn(err);
+    fail(err.code === 'permission-denied' ? 'utrDup' : 'submitFail');
+  }
+  busyBtn(btn, false, t('submitPay'));
+});
+
+/* =====================================================================
+   LOGIN / SIGN UP  (email + verification, or Google)
+   ===================================================================== */
+const auth = configured ? getAuth(app) : null;
+const authScreen = $('#authScreen');
+const verifyScreen = $('#verifyScreen');
+let mode = 'login';
+let justSent = false;
+let pollTimer = null;
+let authRun = 0;
+let lastMsg = {}; // remembers the last message key per box so it can be re-translated
+
+const ERR = {
+  'auth/invalid-email': 'eEmail', 'auth/missing-password': 'eNoPass', 'auth/weak-password': 'eWeak',
+  'auth/email-already-in-use': 'eInUse', 'auth/invalid-credential': 'eCred', 'auth/user-not-found': 'eNoUser',
+  'auth/wrong-password': 'eCred', 'auth/too-many-requests': 'eMany', 'auth/network-request-failed': 'eNet',
+  'auth/popup-closed-by-user': 'ePopup', 'auth/cancelled-popup-request': 'ePopup', 'auth/popup-blocked': 'ePopupBlocked',
+  'auth/unauthorized-domain': 'eDomain', 'auth/operation-not-allowed': 'eMethod',
+};
+const authErrKey = (e) => ERR[e?.code] || 'eGeneric';
+
+/** Show a translated message in a box. Pass a key (translated now and again if the language changes). */
+function say(el, key, ok = false) {
+  lastMsg[el.id] = key ? { key, ok } : null;
+  el.textContent = key ? t(key) : '';
+  el.classList.toggle('hidden', !key);
+  el.classList.toggle('ok', !!ok);
+}
+function busyBtn(btn, on, label) {
+  btn.disabled = on;
+  btn.textContent = on ? t('wait') : label;
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.a-tab').forEach((x) => x.classList.toggle('on', x.dataset.mode === m));
+  $('#aSubmit').textContent = m === 'login' ? t('login') : t('create');
+  $('#aSub').textContent = m === 'login' ? t('authSubLogin') : t('authSubSignup');
+  $('#aPass').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  $('#forgotBtn').classList.toggle('hidden', m !== 'login');
+  say($('#aMsg'), '');
+}
+document.querySelectorAll('.a-tab').forEach((x) => x.addEventListener('click', () => setMode(x.dataset.mode)));
+
+$('#aPwToggle').addEventListener('click', () => {
+  const p = $('#aPass');
+  const show = p.type === 'password';
+  p.type = show ? 'text' : 'password';
+  $('#aPwToggle').textContent = show ? t('hide') : t('show');
+});
+
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('#aEmail').value.trim();
+  const pass = $('#aPass').value;
+  if (!email || !pass) return say($('#aMsg'), 'enterBoth');
+  const btn = $('#aSubmit');
+  const label = mode === 'login' ? t('login') : t('create');
+  busyBtn(btn, true, label);
+  say($('#aMsg'), '');
+  try {
+    if (mode === 'signup') {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      justSent = true;
+      await sendEmailVerification(cred.user);
+    } else {
+      await signInWithEmailAndPassword(auth, email, pass);
+    }
+    $('#aPass').value = '';
+  } catch (err) {
+    justSent = false;
+    say($('#aMsg'), authErrKey(err));
+  }
+  busyBtn(btn, false, label);
+});
+
+$('#googleBtn').addEventListener('click', async () => {
+  say($('#aMsg'), '');
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    say($('#aMsg'), authErrKey(err));
+  }
+});
+
+$('#forgotBtn').addEventListener('click', async () => {
+  const email = $('#aEmail').value.trim();
+  if (!email) return say($('#aMsg'), 'enterEmailFirst');
+  try {
+    await sendPasswordResetEmail(auth, email);
+    say($('#aMsg'), 'resetSent', true);
+  } catch (err) {
+    say($('#aMsg'), authErrKey(err));
+  }
+});
+
+/* ---------- verify screen ---------- */
+async function checkVerified(user, manual = false) {
+  try {
+    await user.reload();
+  } catch (e) {
+    if (manual) say($('#vMsg'), authErrKey(e));
+    return false;
+  }
+  if (user.emailVerified) return true;
+  if (manual) say($('#vMsg'), 'notVerifiedYet');
+  return false;
+}
+
+function showVerify(user) {
+  show('verify');
+  $('#vEmail').textContent = user.email || '';
+  say($('#vMsg'), justSent ? 'verifySent' : 'verifyFirst', justSent);
+  justSent = false;
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (auth.currentUser && (await checkVerified(auth.currentUser))) handleUser(auth.currentUser);
+  }, 4000);
+}
+
+$('#vCheck').addEventListener('click', async () => {
+  const u = auth.currentUser;
+  if (!u) return;
+  if (await checkVerified(u, true)) handleUser(u);
+});
+
+let cool = 0;
+$('#vResend').addEventListener('click', async () => {
+  const u = auth.currentUser;
+  if (!u || cool > 0) return;
+  try {
+    await sendEmailVerification(u);
+    say($('#vMsg'), 'sentAgain', true);
+    cool = 60;
+    const timer = setInterval(() => {
+      cool--;
+      $('#vResend').textContent = cool > 0 ? t('resendIn', { n: cool }) : t('resend');
+      if (cool <= 0) clearInterval(timer);
+    }, 1000);
+  } catch (err) {
+    say($('#vMsg'), authErrKey(err));
+  }
+});
+$('#vLogout').addEventListener('click', () => signOut(auth));
+$('#logoutBtn').addEventListener('click', () => {
+  if (confirm(t('logoutConfirm'))) {
+    closeDrawer();
+    signOut(auth);
+  }
+});
+
+/* =====================================================================
+   LANGUAGE  (UI + answers + questions)
+   ===================================================================== */
+function fillLangSelects() {
+  document.querySelectorAll('.langsel').forEach((sel) => {
+    if (!sel.options.length) sel.innerHTML = LANGS.map((l) => `<option value="${l.code}">${l.native}</option>`).join('');
+    sel.value = getLang();
+  });
+}
+
+/** Re-draw everything that contains translated text. */
+function refreshLanguage() {
+  applyStatic(document);
+  $('#newChatBtn').innerHTML = `${icon('plus', 18)} ${esc(t('newChat'))}`;
+  $('#logoutBtn').innerHTML = `${icon('logout', 18)} ${esc(t('logout'))}`;
+  $('#aPwToggle').textContent = $('#aPass').type === 'password' ? t('show') : t('hide');
+  $('#vResend').textContent = cool > 0 ? t('resendIn', { n: cool }) : t('resend');
+  $('#googleLabel').textContent = t('google');
+  setModeText();
+  for (const [id, m] of Object.entries(lastMsg)) if (m) say($('#' + id), m.key, m.ok);
+  updatePremiumUI();
+  renderThreads();
+  renderSheetParts();
+  fillLangSelects();
+}
+function setModeText() {
+  $('#aSubmit').textContent = mode === 'login' ? t('login') : t('create');
+  $('#aSub').textContent = mode === 'login' ? t('authSubLogin') : t('authSubSignup');
+}
+
+async function changeLanguage(code) {
+  await setLanguage(code, refreshLanguage);
+  refreshLanguage();
+  if (session && threadId) {
+    fs.setDoc(fs.doc(db, 'users', session), { lang: code }, { merge: true }).catch(() => {});
+    // redraw the chat so the welcome message appears in the new language (the menu stays open)
+    listEl.innerHTML = '';
+    seen.clear();
+    lastDay = '';
+    typingEl = null;
+    listenChat();
+  }
+}
+document.addEventListener('change', (e) => {
+  if (e.target.classList?.contains('langsel')) changeLanguage(e.target.value);
+});
+
+/* ---------- screens ---------- */
+function show(which) {
+  authScreen.classList.toggle('hidden', which !== 'auth');
+  verifyScreen.classList.toggle('hidden', which !== 'verify');
+}
+
+function stopApp() {
+  [unsub, unsubQA, unsubSub, unsubSet, unsubPay, unsubTh].forEach((u) => u?.());
+  unsub = unsubQA = unsubSub = unsubSet = unsubPay = unsubTh = null;
+  currentUid = null;
+  session = null;
+  threadId = null;
+  sub = null;
+  settings = null;
+  payments = [];
+  threads = [];
+  listEl.innerHTML = '';
+  chipsEl.innerHTML = '';
+  threadListEl.innerHTML = '';
+  seen.clear();
+  lastDay = '';
+  closeDrawer();
+  closePremium();
+  updatePremiumUI();
+}
+
+async function startApp(user) {
+  if (currentUid === user.uid) return;
+  stopApp();
+  currentUid = user.uid;
+  session = user.uid;
+  await user.getIdToken(true); // refresh the token so Firestore sees "email verified"
+  $('#dUser').textContent = user.email || '';
+  const stored = localStorage.getItem('ar-thread-' + session);
+  hadStored = !!stored;
+  threadId = stored || uuid();
+  fs.setDoc(
+    fs.doc(db, 'users', session),
+    {
+      email: user.email || '',
+      ...(user.displayName ? { name: user.displayName } : {}),
+      createdAt: Number(user.metadata?.createdAt) || Date.now(),
+      lastSeen: Date.now(),
+      lang: getLang(),
+    },
+    { merge: true }
+  ).catch((e) => console.warn('profile save failed', e));
+  listenQA();
+  listenChat();
+  listenThreads();
+  listenPremiumData(session);
+  updatePremiumUI();
+}
+
+async function handleUser(user) {
+  const run = ++authRun;
+  if (!user) {
+    clearInterval(pollTimer);
+    stopApp();
+    show('auth');
+    return;
+  }
+  if (!(await checkVerified(user))) {
+    if (run === authRun) {
+      stopApp();
+      showVerify(user);
+    }
+    return;
+  }
+  if (run !== authRun) return;
+  clearInterval(pollTimer);
+  show('app');
+  await startApp(user);
+}
+
+/* ---------- go ---------- */
+(async function boot() {
+  fillLangSelects();
+  await setLanguage(savedLanguage(), refreshLanguage);
+  refreshLanguage();
+  if (configured) {
+    setMode('login');
+    onAuthStateChanged(auth, handleUser);
+  }
+})();
