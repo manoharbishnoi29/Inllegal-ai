@@ -43,6 +43,51 @@
     .a-link { background: none; border: 0; color: var(--primary); font-weight: 600; cursor: pointer; margin: 14px auto 0; display: block; }
     .a-g { width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 800; display: grid; place-items: center; font-size: .85rem; }
     .a-mail { font-weight: 700; overflow-wrap: anywhere; }
+
+    /* header pill, drawer, premium sheet */
+    .chat-header .brand h1 { font-size: 1.05rem; }
+    .pill { border: 0; border-radius: 99px; padding: 7px 12px; background: var(--accent); color: #2a1a00; font-weight: 800; cursor: pointer; white-space: nowrap; }
+    button.link-btn { width: 100%; cursor: pointer; font: inherit; font-weight: 600; text-align: left; }
+    .d-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 54; display: none; }
+    .d-scrim.open { display: block; }
+    .drawer { position: fixed; inset: 0 auto 0 0; width: min(84vw, 330px); background: var(--surface); border-right: 1px solid var(--border); z-index: 55; transform: translateX(-100%); transition: transform .25s ease; display: flex; flex-direction: column; padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); padding-top: calc(16px + env(safe-area-inset-top)); }
+    .drawer.open { transform: none; }
+    .d-user { font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; margin-bottom: 4px; }
+    .d-plan { font-weight: 700; margin-bottom: 14px; }
+    .d-btn { width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 12px; padding: 11px 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .d-btn.gold { background: var(--accent-soft); border-color: transparent; color: var(--apk); }
+    .d-title { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 4px 8px; }
+    .d-list { flex: 1; overflow-y: auto; display: grid; gap: 6px; align-content: start; }
+    .th { text-align: left; border: 1px solid transparent; background: transparent; color: var(--text); border-radius: 10px; padding: 9px 10px; cursor: pointer; display: grid; gap: 2px; }
+    .th:hover, .th.on { background: var(--surface-2); border-color: var(--border); }
+    .th b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .th small { color: var(--muted); }
+    .sh-bd { position: fixed; inset: 0; z-index: 58; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-end; justify-content: center; }
+    .sheet { background: var(--surface); width: 100%; max-width: 520px; max-height: 92dvh; overflow: auto; border-radius: 20px 20px 0 0; padding: 18px; }
+    @media (min-width: 700px) { .sh-bd { align-items: center; } .sheet { border-radius: 20px; } }
+    .sh-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .sh-head h2 { font-size: 1.4rem; }
+    .sheet h3 { font-size: 1rem; margin: 18px 0 8px; }
+    .sh-ok { background: var(--ok-soft); color: var(--ok); border-radius: 12px; padding: 10px 12px; font-weight: 600; margin-bottom: 12px; }
+    .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 14px; }
+    .plan { border: 2px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 14px; padding: 12px; cursor: pointer; display: grid; gap: 2px; text-align: left; }
+    .plan.on { border-color: var(--primary); background: var(--surface); }
+    .plan span { font-size: 1.5rem; font-weight: 800; }
+    .plan small { color: var(--muted); }
+    a.a-btn { text-decoration: none; }
+    .copyrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-2); border-radius: 10px; padding: 8px 12px; margin: 10px 0; overflow-wrap: anywhere; }
+    .copyrow button { border: 0; background: transparent; color: var(--primary); font-weight: 700; cursor: pointer; }
+    .pr { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; background: var(--surface-2); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
+    .chip-s { font-size: .78rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--apk); }
+    .chip-s.approved { background: var(--ok-soft); color: var(--ok); }
+    .chip-s.rejected { background: var(--danger-soft); color: var(--danger); }
+    html[dir='rtl'] .drawer { inset: 0 0 0 auto; transform: translateX(100%); border-right: 0; border-left: 1px solid var(--border); }
+    html[dir='rtl'] .drawer.open { transform: none; }
+    html[dir='rtl'] .th, html[dir='rtl'] .plan, html[dir='rtl'] .result, html[dir='rtl'] button.link-btn { text-align: right; }
+    html[dir='rtl'] .a-pw .input { padding-right: 12px; padding-left: 64px; }
+    html[dir='rtl'] .a-pw button { right: auto; left: 6px; }
+    .langsel { cursor: pointer; }
+    .a-note { font-size: .8rem; color: var(--muted); margin: 12px 0 0; text-align: center; }
   </style>
   <script>
     (function () {
@@ -54,25 +99,26 @@
 </head>
 <body class="chat-page">
   <div id="setupBanner" class="setup-banner hidden">
-    Setup pending: js/config.js mein Firebase config daalo.
+    Setup pending: add your Firebase config in js/config.js.
   </div>
 
   <header class="chat-header">
+    <button class="icon-btn" id="menuBtn" data-i18n-aria="menu" data-i18n-title="menu" aria-label="Menu" title="Menu"></button>
     <div class="brand">
       <div class="logo" id="logo"></div>
       <div>
         <h1>Illegal AI</h1>
-        <div class="status">Online &middot; instant answers</div>
+        <div class="status" data-i18n="status">Online &middot; instant answers</div>
       </div>
     </div>
-    <button class="icon-btn hidden" id="installBtn" aria-label="Install app" title="Install app"></button>
-    <button class="icon-btn" id="searchBtn" aria-label="Search answers" title="Search answers"></button>
-    <button class="icon-btn" id="logoutBtn" aria-label="Logout" title="Logout"></button>
+    <button class="icon-btn hidden" id="installBtn" data-i18n-aria="install" data-i18n-title="install" aria-label="Install app" title="Install app"></button>
+    <button class="icon-btn" id="searchBtn" data-i18n-aria="search" data-i18n-title="search" aria-label="Search answers" title="Search answers"></button>
+    <button class="pill" id="premiumBtn" type="button">👑</button>
     <button class="icon-btn" id="themeBtn"></button>
   </header>
 
   <section class="search-panel hidden" id="searchPanel" aria-label="Search saved answers">
-    <input class="input" id="searchInput" type="search" placeholder="Search by keyword (Hindi / English / Hinglish)" autocomplete="off">
+    <input class="input" id="searchInput" type="search" data-i18n-ph="searchPh" placeholder="Search by keyword" autocomplete="off">
     <div id="searchResults"></div>
   </section>
 
@@ -81,54 +127,74 @@
   <div class="dock">
     <div class="chips" id="chips" aria-label="Suggested questions"></div>
     <form class="composer" id="composer" autocomplete="off">
-      <textarea id="input" rows="1" maxlength="500" placeholder="Apna sawaal likho... / Type your question" aria-label="Your question"></textarea>
+      <textarea id="input" rows="1" maxlength="500" data-i18n-ph="askPh" placeholder="Type your question…" aria-label="Your question"></textarea>
       <button class="send" id="sendBtn" type="submit" aria-label="Send"></button>
     </form>
   </div>
 
+  <!-- MENU DRAWER -->
+  <div class="d-scrim" id="dScrim"></div>
+  <aside class="drawer" id="drawer" aria-label="Menu">
+    <div class="d-user" id="dUser"></div>
+    <div class="d-plan" id="dPlan">Free plan</div>
+    <button class="d-btn" id="newChatBtn" type="button"></button>
+    <button class="d-btn gold" id="drawerPremium" type="button">👑 Get Premium</button>
+    <div class="d-title" data-i18n="prevChats">Previous chats</div>
+    <div class="d-list" id="threadList"></div>
+    <div class="d-title" data-i18n="language">Language</div>
+    <select class="input langsel" id="langDrawer" aria-label="Language"></select>
+    <button class="d-btn" id="logoutBtn" type="button" style="margin-top:10px"></button>
+  </aside>
+
+  <!-- PREMIUM SHEET -->
+  <div class="sh-bd hidden" id="sheetBd"><div class="sheet" id="sheet"></div></div>
+
   <!-- LOGIN / SIGN UP -->
   <div class="auth" id="authScreen">
     <div class="a-card">
+      <select class="input langsel" id="langAuth" aria-label="Language" style="width:auto;margin:0 0 12px auto;display:block;min-height:36px;padding:4px 10px"></select>
       <div class="a-logo"></div>
       <h2>Illegal AI</h2>
-      <p class="a-sub" id="aSub">Login karke apna sawaal poocho.</p>
+      <p class="a-sub" id="aSub">Log in to ask your questions.</p>
       <div class="a-tabs">
-        <button type="button" class="a-tab on" data-mode="login">Login</button>
-        <button type="button" class="a-tab" data-mode="signup">Sign up</button>
+        <button type="button" class="a-tab on" data-mode="login" data-i18n="tabLogin">Log in</button>
+        <button type="button" class="a-tab" data-mode="signup" data-i18n="tabSignup">Sign up</button>
       </div>
       <div class="a-msg hidden" id="aMsg" role="alert"></div>
       <form id="authForm" novalidate>
         <div class="a-field">
-          <label for="aEmail">Email</label>
-          <input class="input" id="aEmail" type="email" autocomplete="username" placeholder="aap@gmail.com">
+          <label for="aEmail" data-i18n="email">Email</label>
+          <input class="input" id="aEmail" type="email" autocomplete="username" data-i18n-ph="emailPh" placeholder="you@gmail.com">
         </div>
         <div class="a-field">
-          <label for="aPass">Password</label>
+          <label for="aPass" data-i18n="password">Password</label>
           <div class="a-pw">
-            <input class="input" id="aPass" type="password" autocomplete="current-password" placeholder="Kam se kam 6 akshar">
+            <input class="input" id="aPass" type="password" autocomplete="current-password" data-i18n-ph="passPh" placeholder="At least 6 characters">
             <button type="button" id="aPwToggle">Show</button>
           </div>
         </div>
         <button class="a-btn a-primary" id="aSubmit" type="submit">Login</button>
       </form>
-      <div class="a-or">ya</div>
-      <button class="a-btn a-ghost" id="googleBtn" type="button"><span class="a-g">G</span> Google se continue karo</button>
-      <button class="a-link" id="forgotBtn" type="button">Password bhool gaye?</button>
+      <div class="a-or" data-i18n="or">or</div>
+      <button class="a-btn a-ghost" id="googleBtn" type="button"><span class="a-g">G</span> <span id="googleLabel">Continue with Google</span></button>
+      <button class="a-link" id="forgotBtn" type="button" data-i18n="forgot">Forgot password?</button>
+      <p class="a-note" data-i18n="adminSees">Your chats and account details are visible to the admin.</p>
     </div>
   </div>
 
   <!-- EMAIL VERIFY -->
   <div class="auth hidden" id="verifyScreen">
     <div class="a-card">
+      <select class="input langsel" id="langVerify" aria-label="Language" style="width:auto;margin:0 0 12px auto;display:block;min-height:36px;padding:4px 10px"></select>
       <div class="a-logo"></div>
-      <h2>Email verify karo</h2>
-      <p class="a-sub">Humne is email par ek verification link bheja hai:</p>
+      <h2 data-i18n="verifyTitle">Verify your email</h2>
+      <p class="a-sub" data-i18n="verifySentTo">We sent a verification link to:</p>
       <p class="a-mail" id="vEmail"></p>
       <div class="a-msg hidden" id="vMsg" role="alert"></div>
-      <p class="hint" style="margin:0 0 16px">Email kholo, link par tap karo, phir yahan wapas aao. Email na mile to spam folder bhi dekho.</p>
-      <button class="a-btn a-primary" id="vCheck" type="button">Maine verify kar liya</button>
-      <button class="a-btn a-ghost" id="vResend" type="button">Email dobara bhejo</button>
-      <button class="a-link" id="vLogout" type="button">Dusre email se login karo</button>
+      <p class="hint" style="margin:0 0 16px" data-i18n="verifyHint">Open your email, tap the link, then come back here. Check your spam folder if you can't find it.</p>
+      <button class="a-btn a-primary" id="vCheck" type="button" data-i18n="iVerified">I've verified</button>
+      <button class="a-btn a-ghost" id="vResend" type="button" data-i18n="resend">Resend email</button>
+      <button class="a-link" id="vLogout" type="button" data-i18n="diffEmail">Use a different email</button>
     </div>
   </div>
 
