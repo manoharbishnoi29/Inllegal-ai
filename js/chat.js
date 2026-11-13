@@ -1,16 +1,16 @@
 import { esc, formatText, safeUrl, toast, icon, initTheme, debounce, registerSW, uuid } from './shared.js';
 import { configured, app, db, fs } from './firebase.js';
+import { t, getLang, setLanguage, applyStatic, savedLanguage } from './i18n.js';
+import { LANGS, CONTENT_LANG, TRANSLATE, translateText, safeTranslate, detectScriptLang } from './translate.js';
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendEmailVerification, sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
-const FALLBACK = "Sorry! We don't have an answer yet. Your question has been forwarded to the admin.";
-const WELCOME = 'Namaste! 👋 Apna sawaal Hindi, English ya Hinglish mein likho. Jo answer saved hoga, turant mil jayega — links aur downloads ke saath.';
 const KINDS = {
-  app: { text: 'Open App', icon: 'app' },
-  website: { text: 'Open Website', icon: 'globe' },
-  apk: { text: 'Download APK', icon: 'download' },
+  app: { key: 'openApp', icon: 'app' },
+  website: { key: 'openWebsite', icon: 'globe' },
+  apk: { key: 'downloadApk', icon: 'download' },
 };
 
 const $ = (s) => document.querySelector(s);
@@ -21,54 +21,67 @@ const chipsEl = $('#chips');
 const panel = $('#searchPanel');
 const sInput = $('#searchInput');
 const sResults = $('#searchResults');
+const drawer = $('#drawer');
+const dScrim = $('#dScrim');
+const threadListEl = $('#threadList');
+const sheetBd = $('#sheetBd');
+const sheet = $('#sheet');
 
 let session = null;
+let threadId = null;
+let hadStored = false;
 const seen = new Set();
 const mine = new Set();
 let lastDay = '';
 let busy = false;
 let typingEl = null;
 let qa = [];
-let unsub = null;
-let unsubQA = null;
-let currentUid = null;
 let results = [];
+let threads = [];
+let sub = null;
+let settings = null;
+let payments = [];
+let selPlan = 'monthly';
+let currentUid = null;
+let unsub = null, unsubQA = null, unsubSub = null, unsubSet = null, unsubPay = null, unsubTh = null;
 
 /* ---------- static UI ---------- */
 $('#logo').innerHTML = icon('chat', 22);
+$('#menuBtn').innerHTML = icon('menu');
 $('#searchBtn').innerHTML = icon('search');
-$('#logoutBtn').innerHTML = icon('logout');
 $('#installBtn').innerHTML = icon('download');
 sendBtn.innerHTML = icon('send');
 initTheme($('#themeBtn'));
 registerSW();
 
 if (!configured) {
-  $('#setupBanner').textContent = 'Setup pending: js/config.js mein Firebase config daalo.';
+  $('#setupBanner').textContent = 'Setup pending: add your Firebase config in js/config.js.';
   $('#setupBanner').classList.remove('hidden');
   $('#authScreen').classList.add('hidden');
   inputEl.disabled = true;
   sendBtn.disabled = true;
 }
 
-/* ---------- render ---------- */
-const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const fmtTime = (ts) => new Date(ts).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit' });
+const fmtDate = (ts) => new Date(ts).toLocaleDateString(getLang(), { day: 'numeric', month: 'short', year: 'numeric' });
+const isPremium = () => !!(sub && sub.expiresAt > Date.now());
 
-function dayLabel(t) {
-  const d = new Date(t);
+/* ---------- render ---------- */
+function dayLabel(ts) {
+  const d = new Date(ts);
   const today = new Date();
   const y = new Date();
   y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === y.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (d.toDateString() === today.toDateString()) return t('today');
+  if (d.toDateString() === y.toDateString()) return t('yesterday');
+  return fmtDate(ts);
 }
 
 function linkBtn(l) {
   const href = safeUrl(l?.url);
   if (!href) return '';
   const k = KINDS[l.kind] || KINDS.website;
-  const text = esc(l.label || k.text);
+  const text = esc(l.label || t(k.key));
   const dl = l.kind === 'apk' ? ' download' : '';
   return `<a class="link-btn ${esc(l.kind)}" href="${esc(href)}" target="_blank" rel="noopener noreferrer"${dl}>${icon(k.icon, 20)}<span>${text}</span></a>`;
 }
@@ -92,14 +105,18 @@ function addMessage(m, { scroll = true } = {}) {
     put(d);
   }
   const links = (Array.isArray(m.links) ? m.links : []).map(linkBtn).join('');
+  const lock = m.premium ? `<button type="button" class="link-btn apk" data-premium>👑<span>${esc(t('getPremiumLock'))}</span></button>` : '';
   const el = document.createElement('div');
   el.className = `msg ${m.role}`;
   el.innerHTML = `${m.role === 'bot' ? `<div class="avatar">${icon('bot', 18)}</div>` : ''}
-    <div class="col"><div class="bubble">${formatText(m.content)}${links ? `<div class="links">${links}</div>` : ''}</div>
+    <div class="col"><div class="bubble">${formatText(m.content)}${links || lock ? `<div class="links">${links}${lock}</div>` : ''}</div>
     <div class="time">${fmtTime(m.ts)}</div></div>`;
   put(el);
   if (scroll) listEl.scrollTop = listEl.scrollHeight;
 }
+listEl.addEventListener('click', (e) => {
+  if (e.target.closest('[data-premium]')) openPremium();
+});
 
 function showTyping() {
   typingEl = document.createElement('div');
@@ -165,7 +182,7 @@ function listenQA() {
     (snap) => {
       qa = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const top = [...qa].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 8);
-      chipsEl.innerHTML = top.map((r) => `<button type="button" class="chip" title="${esc(r.question)}">${esc(r.question)}</button>`).join('');
+      chipsEl.innerHTML = top.map((r) => `<button type="button" class="chip" title="${esc(r.question)}">${r.isPremium ? '👑 ' : ''}${esc(r.question)}</button>`).join('');
     },
     (err) => console.warn('qa listen failed', err)
   );
@@ -174,15 +191,15 @@ function listenQA() {
 function listenChat() {
   unsub?.();
   let first = true;
-  const q = fs.query(fs.collection(db, 'chats', session, 'messages'), fs.orderBy('ts', 'asc'), fs.limit(300));
+  const q = fs.query(fs.collection(db, 'chats', session, 'threads', threadId, 'messages'), fs.orderBy('ts', 'asc'), fs.limit(300));
   unsub = fs.onSnapshot(
     q,
     (snap) => {
-      if (first && snap.empty) addMessage({ id: 'welcome', role: 'bot', content: WELCOME, ts: Date.now() }, { scroll: false });
+      if (first && snap.empty) addMessage({ id: 'welcome', role: 'bot', content: t('welcome'), ts: Date.now() }, { scroll: false });
       snap.docChanges().forEach((ch) => {
         if (ch.type !== 'added') return;
         const m = { id: ch.doc.id, ...ch.doc.data() };
-        if (!first && m.role === 'bot' && !mine.has(m.id)) toast('New reply received');
+        if (!first && m.role === 'bot' && !mine.has(m.id)) toast(t('newReply'));
         addMessage(m, { scroll: false });
       });
       first = false;
@@ -190,52 +207,163 @@ function listenChat() {
     },
     (err) => {
       console.warn(err);
-      toast('Chat load nahi hui. Firestore rules check karo.', 'error');
+      toast(t('loadFail'), 'error');
     }
   );
 }
 
+function listenThreads() {
+  unsubTh?.();
+  let first = true;
+  unsubTh = fs.onSnapshot(
+    fs.query(fs.collection(db, 'chats', session, 'threads'), fs.orderBy('updatedAt', 'desc'), fs.limit(100)),
+    (snap) => {
+      threads = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (first) {
+        first = false;
+        if (!hadStored && threads.length) {
+          openThread(threads[0].id);
+          return;
+        }
+      }
+      renderThreads();
+    },
+    (err) => console.warn('threads listen failed', err)
+  );
+}
+
+function renderThreads() {
+  threadListEl.innerHTML = threads.length
+    ? threads
+        .map((th) => `<button type="button" class="th ${th.id === threadId ? 'on' : ''}" data-tid="${esc(th.id)}"><b>${esc(th.title || 'Chat')}</b><small>${fmtDate(th.updatedAt || th.createdAt || Date.now())}</small></button>`)
+        .join('')
+    : `<p class="hint" style="margin:4px">${esc(t('noChats'))}</p>`;
+}
+
+function openThread(tid) {
+  threadId = tid;
+  localStorage.setItem('ar-thread-' + session, tid);
+  listEl.innerHTML = '';
+  seen.clear();
+  lastDay = '';
+  typingEl = null;
+  listenChat();
+  renderThreads();
+  closeDrawer();
+}
+
+function openDrawer() {
+  drawer.classList.add('open');
+  dScrim.classList.add('open');
+}
+function closeDrawer() {
+  drawer.classList.remove('open');
+  dScrim.classList.remove('open');
+}
+$('#menuBtn').addEventListener('click', openDrawer);
+dScrim.addEventListener('click', closeDrawer);
+$('#newChatBtn').addEventListener('click', () => openThread(uuid()));
+threadListEl.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tid]');
+  if (b) openThread(b.dataset.tid);
+});
+
+/* ---------- sending ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const saveMsg = (m) =>
-  fs.setDoc(fs.doc(db, 'chats', session, 'messages', m.id), {
+  fs.setDoc(fs.doc(db, 'chats', session, 'threads', threadId, 'messages', m.id), {
     role: m.role, content: m.content, links: m.links || [], qaId: m.qaId || null, ts: m.ts,
+    ...(m.premium ? { premium: true } : {}),
   });
+
+function touchThread(text) {
+  const ref = fs.doc(db, 'chats', session, 'threads', threadId);
+  const now = Date.now();
+  if (threads.some((x) => x.id === threadId)) return fs.updateDoc(ref, { updatedAt: now });
+  return fs.setDoc(ref, { title: text.slice(0, 40), createdAt: now, updatedAt: now });
+}
+
+let transWarned = false;
+/** Translate admin-written text (CONTENT_LANG) into the user's language. Falls back to the original text. */
+async function toUserLang(text) {
+  const lang = getLang();
+  if (!text || lang === CONTENT_LANG) return text;
+  const r = await safeTranslate(text, CONTENT_LANG, lang);
+  if (!r.ok && !transWarned) {
+    transWarned = true;
+    toast(t('transFail'), 'error');
+  }
+  return r.text;
+}
+
+/** Find the best saved answer. If nothing matches, translate the question to the admin's language and try again. */
+async function findForQuestion(text) {
+  const hit = findAnswers(text, 1)[0];
+  if (hit || TRANSLATE.provider === 'none') return hit || null;
+  const src = detectScriptLang(text) || (getLang() !== CONTENT_LANG ? getLang() : null);
+  if (!src || src === CONTENT_LANG) return null;
+  const r = await safeTranslate(text, src, CONTENT_LANG);
+  if (!r.ok || r.text.trim().toLowerCase() === text.trim().toLowerCase()) return null;
+  return findAnswers(r.text, 1)[0] || null;
+}
+
+async function buildReply(item, text) {
+  const bot = { id: uuid(), role: 'bot', links: [] };
+  if (!item) {
+    bot.content = t('fallback');
+    fs.addDoc(fs.collection(db, 'unanswered'), {
+      question: text, sessionId: session, threadId, email: auth.currentUser?.email || '', lang: getLang(), status: 'pending', createdAt: Date.now(),
+    }).catch((e) => console.warn('unanswered save failed', e));
+    return bot;
+  }
+  bot.qaId = item.id;
+  if (!item.isPremium) {
+    bot.content = await toUserLang(item.answer);
+    bot.links = (item.links || []).map(({ kind, label, url }) => ({ kind, label: label || '', url }));
+    return bot;
+  }
+  if (isPremium()) {
+    try {
+      const d = await fs.getDoc(fs.doc(db, 'qa_premium', item.id));
+      if (d.exists()) {
+        bot.content = await toUserLang(d.data().answer);
+        bot.links = (d.data().links || []).map(({ kind, label, url }) => ({ kind, label: label || '', url }));
+        return bot;
+      }
+    } catch (e) {
+      console.warn('premium fetch failed', e);
+    }
+  }
+  bot.premium = true;
+  bot.content = t('locked');
+  if (item.answer && !String(item.answer).startsWith('🔒')) bot.content += '\n\n' + t('preview', { text: await toUserLang(item.answer) });
+  return bot;
+}
 
 async function ask(text, direct = null) {
   text = (text || '').trim().slice(0, 500);
-  if (!text || busy || !configured || !session) return;
+  if (!text || busy || !configured || !session || !threadId) return;
   busy = true;
   sendBtn.disabled = true;
 
   const userMsg = { id: uuid(), role: 'user', content: text, ts: Date.now() };
   mine.add(userMsg.id);
   try {
+    touchThread(text).catch((e) => console.warn('thread save failed', e));
     saveMsg(userMsg).catch((e) => console.warn('save failed', e));
     showTyping();
 
-    const item = direct || findAnswers(text, 1)[0] || null;
-    await sleep(450);
-
-    const bot = { id: uuid(), role: 'bot', ts: Date.now() + 1 };
+    const item = direct || (await findForQuestion(text));
+    const [bot] = await Promise.all([buildReply(item, text), sleep(450)]);
+    bot.ts = Date.now() + 1;
     mine.add(bot.id);
-    if (item) {
-      bot.content = item.answer;
-      bot.links = (item.links || []).map(({ kind, label, url }) => ({ kind, label: label || '', url }));
-      bot.qaId = item.id;
-    } else {
-      bot.content = FALLBACK;
-      bot.links = [];
-      fs.addDoc(fs.collection(db, 'unanswered'), {
-        question: text, sessionId: session, status: 'pending', createdAt: Date.now(),
-      }).catch((e) => console.warn('unanswered save failed', e));
-    }
     fs.setDoc(fs.doc(db, 'asked', uuid()), { question: text, matched: !!item, ts: Date.now() }).catch(() => {});
     hideTyping();
     await saveMsg(bot);
   } catch (e) {
     console.error(e);
     hideTyping();
-    toast('Network problem. Please try again.', 'error');
+    toast(t('netProblem'), 'error');
   } finally {
     busy = false;
     sendBtn.disabled = false;
@@ -247,19 +375,21 @@ async function ask(text, direct = null) {
 const runSearch = debounce(() => {
   const q = sInput.value.trim();
   if (q.length < 2) {
-    sResults.innerHTML = '<p class="hint" style="margin:8px 2px">Kam se kam 2 letters likho.</p>';
+    sResults.innerHTML = `<p class="hint" style="margin:8px 2px">${esc(t('typeMore'))}</p>`;
     return;
   }
   const low = q.toLowerCase();
   const map = new Map();
   findAnswers(q, 8).forEach((r) => map.set(r.id, r));
   qa.forEach((r) => {
-    if ([r.question, r.answer, (r.keywords || []).join(' ')].join(' ').toLowerCase().includes(low)) map.set(r.id, r);
+    if ([r.question, r.premium ? '' : r.answer, (r.keywords || []).join(' ')].join(' ').toLowerCase().includes(low)) map.set(r.id, r);
   });
   results = [...map.values()].slice(0, 10);
   sResults.innerHTML = results.length
-    ? results.map((r, i) => `<button type="button" class="result" data-i="${i}"><b>${esc(r.question)}</b><span>${esc(r.answer)}</span></button>`).join('')
-    : '<p class="hint" style="margin:8px 2px">Kuch nahi mila. Chat mein sawaal bhejo — admin ko forward ho jayega.</p>';
+    ? results
+        .map((r, i) => `<button type="button" class="result" data-i="${i}"><b>${r.isPremium ? '👑 ' : ''}${esc(r.question)}</b><span>${r.isPremium ? esc(t('premiumAnswer')) : esc(r.answer)}</span></button>`)
+        .join('')
+    : `<p class="hint" style="margin:8px 2px">${esc(t('noResults'))}</p>`;
 }, 250);
 
 $('#searchBtn').addEventListener('click', () => {
@@ -316,210 +446,16 @@ $('#installBtn').addEventListener('click', async () => {
 });
 
 /* =====================================================================
-   LOGIN / SIGN UP  (email + verification, ya Google)
+   PREMIUM  (plans, UPI payment, payment requests)
    ===================================================================== */
-const auth = configured ? getAuth(app) : null;
-const authScreen = $('#authScreen');
-const verifyScreen = $('#verifyScreen');
-let mode = 'login';
-let justSent = false;
-let pollTimer = null;
-let authRun = 0;
-
-const ERR = {
-  'auth/invalid-email': 'Email sahi nahi hai.',
-  'auth/missing-password': 'Password likho.',
-  'auth/weak-password': 'Password kam se kam 6 akshar ka rakho.',
-  'auth/email-already-in-use': 'Ye email pehle se registered hai. Login karo.',
-  'auth/invalid-credential': 'Email ya password galat hai.',
-  'auth/user-not-found': 'Is email ka account nahi mila. Sign up karo.',
-  'auth/wrong-password': 'Email ya password galat hai.',
-  'auth/too-many-requests': 'Bahut zyada koshish ho gayi. Thodi der baad try karo.',
-  'auth/network-request-failed': 'Internet check karo.',
-  'auth/popup-closed-by-user': 'Google login beech mein band ho gaya.',
-  'auth/cancelled-popup-request': 'Google login beech mein band ho gaya.',
-  'auth/popup-blocked': 'Popup block hai. Allow karke dobara try karo.',
-  'auth/unauthorized-domain': 'Firebase mein is site ka domain authorized nahi hai.',
-  'auth/operation-not-allowed': 'Ye login method Firebase mein on nahi hai.',
-};
-const authErr = (e) => ERR[e?.code] || e?.message || 'Kuch galat ho gaya.';
-
-function say(el, text, ok = false) {
-  el.textContent = text || '';
-  el.classList.toggle('hidden', !text);
-  el.classList.toggle('ok', !!ok);
-}
-function busyBtn(btn, on, label) {
-  btn.disabled = on;
-  btn.textContent = on ? 'Ruko…' : label;
+function updatePremiumUI() {
+  const on = isPremium();
+  $('#premiumBtn').textContent = on ? t('premiumOn') : t('getPremium');
+  $('#dPlan').textContent = on ? t('premiumUntil', { date: fmtDate(sub.expiresAt) }) : t('freePlan');
+  $('#drawerPremium').textContent = on ? t('managePremium') : t('getPremium');
 }
 
-function setMode(m) {
-  mode = m;
-  document.querySelectorAll('.a-tab').forEach((t) => t.classList.toggle('on', t.dataset.mode === m));
-  $('#aSubmit').textContent = m === 'login' ? 'Login' : 'Account banao';
-  $('#aSub').textContent = m === 'login' ? 'Login karke apna sawaal poocho.' : 'Naya account banao. Email verify karna padega.';
-  $('#aPass').autocomplete = m === 'login' ? 'current-password' : 'new-password';
-  $('#forgotBtn').classList.toggle('hidden', m !== 'login');
-  say($('#aMsg'), '');
-}
-document.querySelectorAll('.a-tab').forEach((t) => t.addEventListener('click', () => setMode(t.dataset.mode)));
-
-$('#aPwToggle').addEventListener('click', () => {
-  const p = $('#aPass');
-  const show = p.type === 'password';
-  p.type = show ? 'text' : 'password';
-  $('#aPwToggle').textContent = show ? 'Hide' : 'Show';
-});
-
-$('#authForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = $('#aEmail').value.trim();
-  const pass = $('#aPass').value;
-  if (!email || !pass) return say($('#aMsg'), 'Email aur password dono likho.');
-  const btn = $('#aSubmit');
-  const label = mode === 'login' ? 'Login' : 'Account banao';
-  busyBtn(btn, true, label);
-  say($('#aMsg'), '');
-  try {
-    if (mode === 'signup') {
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
-      justSent = true;
-      await sendEmailVerification(cred.user);
-    } else {
-      await signInWithEmailAndPassword(auth, email, pass);
-    }
-    $('#aPass').value = '';
-  } catch (err) {
-    justSent = false;
-    say($('#aMsg'), authErr(err));
-  }
-  busyBtn(btn, false, label);
-});
-
-$('#googleBtn').addEventListener('click', async () => {
-  say($('#aMsg'), '');
-  try {
-    await signInWithPopup(auth, new GoogleAuthProvider());
-  } catch (err) {
-    say($('#aMsg'), authErr(err));
-  }
-});
-
-$('#forgotBtn').addEventListener('click', async () => {
-  const email = $('#aEmail').value.trim();
-  if (!email) return say($('#aMsg'), 'Pehle upar apna email likho, phir yahan dabao.');
-  try {
-    await sendPasswordResetEmail(auth, email);
-    say($('#aMsg'), 'Password reset link bhej diya. Inbox ya spam folder check karo.', true);
-  } catch (err) {
-    say($('#aMsg'), authErr(err));
-  }
-});
-
-/* ---------- verify screen ---------- */
-async function checkVerified(user, manual = false) {
-  try {
-    await user.reload();
-  } catch (e) {
-    if (manual) say($('#vMsg'), authErr(e));
-    return false;
-  }
-  if (user.emailVerified) return true;
-  if (manual) say($('#vMsg'), 'Abhi verify nahi hua. Email mein diye link par tap karo, phir yahan dobara dabao.');
-  return false;
-}
-
-function showVerify(user) {
-  show('verify');
-  $('#vEmail').textContent = user.email || '';
-  say($('#vMsg'), justSent ? 'Verification email bhej diya gaya hai.' : 'Is email ko pehle verify karna hoga.', justSent);
-  justSent = false;
-  clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    if (auth.currentUser && (await checkVerified(auth.currentUser))) handleUser(auth.currentUser);
-  }, 4000);
-}
-
-$('#vCheck').addEventListener('click', async () => {
-  const u = auth.currentUser;
-  if (!u) return;
-  if (await checkVerified(u, true)) handleUser(u);
-});
-
-let cool = 0;
-$('#vResend').addEventListener('click', async () => {
-  const u = auth.currentUser;
-  if (!u || cool > 0) return;
-  try {
-    await sendEmailVerification(u);
-    say($('#vMsg'), 'Email dobara bhej diya. Spam folder bhi dekho.', true);
-    cool = 60;
-    const t = setInterval(() => {
-      cool--;
-      $('#vResend').textContent = cool > 0 ? `Dobara bhejo (${cool}s)` : 'Email dobara bhejo';
-      if (cool <= 0) clearInterval(t);
-    }, 1000);
-  } catch (err) {
-    say($('#vMsg'), authErr(err));
-  }
-});
-$('#vLogout').addEventListener('click', () => signOut(auth));
-$('#logoutBtn').addEventListener('click', () => {
-  if (confirm('Logout karein?')) signOut(auth);
-});
-
-/* ---------- screens ---------- */
-function show(which) {
-  authScreen.classList.toggle('hidden', which !== 'auth');
-  verifyScreen.classList.toggle('hidden', which !== 'verify');
-}
-
-function stopApp() {
-  unsub?.();
-  unsubQA?.();
-  unsub = unsubQA = null;
-  currentUid = null;
-  session = null;
-  listEl.innerHTML = '';
-  chipsEl.innerHTML = '';
-  seen.clear();
-  lastDay = '';
-}
-
-async function startApp(user) {
-  if (currentUid === user.uid) return;
-  stopApp();
-  currentUid = user.uid;
-  session = user.uid; // chat history is user ke UID ke naam se save hoti hai
-  await user.getIdToken(true); // naya "email verified" token lo, warna Firestore block karega
-  listenQA();
-  listenChat();
-}
-
-async function handleUser(user) {
-  const run = ++authRun;
-  if (!user) {
-    clearInterval(pollTimer);
-    stopApp();
-    show('auth');
-    return;
-  }
-  if (!(await checkVerified(user))) {
-    if (run === authRun) {
-      stopApp();
-      showVerify(user);
-    }
-    return;
-  }
-  if (run !== authRun) return;
-  clearInterval(pollTimer);
-  show('app');
-  await startApp(user);
-}
-
-/* ---------- go ---------- */
-if (configured) {
-  setMode('login');
-  onAuthStateChanged(auth, handleUser);
-}
+function listenPremiumData(uid) {
+  unsubSub?.();
+  unsubSet?.();
+  unsubPay?.(
