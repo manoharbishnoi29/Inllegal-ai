@@ -2,6 +2,7 @@ import { esc, formatText, safeUrl, toast, icon, initTheme, debounce, registerSW,
 import { configured, app, db, fs } from './firebase.js';
 import { t, getLang, setLanguage, applyStatic, savedLanguage } from './i18n.js';
 import { LANGS, CONTENT_LANG, TRANSLATE, translateText, safeTranslate, detectScriptLang } from './translate.js';
+import { askKnowledge, aiText } from './ai.js';
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendEmailVerification, sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup,
@@ -110,7 +111,7 @@ function addMessage(m, { scroll = true } = {}) {
   el.className = `msg ${m.role}`;
   el.innerHTML = `${m.role === 'bot' ? `<div class="avatar">${icon('bot', 18)}</div>` : ''}
     <div class="col"><div class="bubble">${formatText(m.content)}${links || lock ? `<div class="links">${links}${lock}</div>` : ''}</div>
-    <div class="time">${fmtTime(m.ts)}</div></div>`;
+    <div class="time">${m.ai ? esc(aiText('badge')) + ' · ' : ''}${fmtTime(m.ts)}</div></div>`;
   put(el);
   if (scroll) listEl.scrollTop = listEl.scrollHeight;
 }
@@ -274,6 +275,7 @@ const saveMsg = (m) =>
   fs.setDoc(fs.doc(db, 'chats', session, 'threads', threadId, 'messages', m.id), {
     role: m.role, content: m.content, links: m.links || [], qaId: m.qaId || null, ts: m.ts,
     ...(m.premium ? { premium: true } : {}),
+    ...(m.ai ? { ai: true } : {}),
   });
 
 function touchThread(text) {
@@ -284,6 +286,7 @@ function touchThread(text) {
 }
 
 let transWarned = false;
+let lastTranslatedQ = '';
 /** Translate admin-written text (CONTENT_LANG) into the user's language. Falls back to the original text. */
 async function toUserLang(text) {
   const lang = getLang();
@@ -304,12 +307,31 @@ async function findForQuestion(text) {
   if (!src || src === CONTENT_LANG) return null;
   const r = await safeTranslate(text, src, CONTENT_LANG);
   if (!r.ok || r.text.trim().toLowerCase() === text.trim().toLowerCase()) return null;
+  lastTranslatedQ = r.text;
   return findAnswers(r.text, 1)[0] || null;
+}
+
+/** No saved Q&A matched: try the Knowledge Database (websites and documents the admin added). */
+async function tryKnowledge(text) {
+  try {
+    return await askKnowledge({ fs, db, uid: session, questions: [text, lastTranslatedQ].filter(Boolean), lang: getLang() });
+  } catch (e) {
+    if (e.code === 'limit') toast(aiText('limit'), 'error');
+    else console.warn('AI answer failed', e);
+    return null;
+  }
 }
 
 async function buildReply(item, text) {
   const bot = { id: uuid(), role: 'bot', links: [] };
   if (!item) {
+    const ai = await tryKnowledge(text);
+    if (ai) {
+      bot.content = ai.text;
+      bot.links = ai.links;
+      bot.ai = true;
+      return bot;
+    }
     bot.content = t('fallback');
     fs.addDoc(fs.collection(db, 'unanswered'), {
       question: text, sessionId: session, threadId, email: auth.currentUser?.email || '', lang: getLang(), status: 'pending', createdAt: Date.now(),
@@ -353,11 +375,12 @@ async function ask(text, direct = null) {
     saveMsg(userMsg).catch((e) => console.warn('save failed', e));
     showTyping();
 
+    lastTranslatedQ = '';
     const item = direct || (await findForQuestion(text));
     const [bot] = await Promise.all([buildReply(item, text), sleep(450)]);
     bot.ts = Date.now() + 1;
     mine.add(bot.id);
-    fs.setDoc(fs.doc(db, 'asked', uuid()), { question: text, matched: !!item, ts: Date.now() }).catch(() => {});
+    fs.setDoc(fs.doc(db, 'asked', uuid()), { question: text, matched: !!item || !!bot.ai, ts: Date.now() }).catch(() => {});
     hideTyping();
     await saveMsg(bot);
   } catch (e) {
